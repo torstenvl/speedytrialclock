@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+
+<!-- 
+╔═════════════════════════════════════════════════════════════════════════╗
+║                                                                         ║
+║ speedytrialclock example page                                           ║
+║ Joshua Lee Ockert, 2023                                                 ║
+║                                                                         ║
+║ This file is hereby dedicated to the public domain.                     ║
+║                                                                         ║
+║ Permission to use, copy, modify, and/or distribute this work for any    ║
+║ purpose is hereby granted, without precondition or royalty.             ║
+║                                                                         ║
+║ THIS WORK IS PROVIDED "AS IS" WITH NO WARRANTY OF ANY KIND. THE IMPLIED ║
+║ WARRANTIES OF MERCHANTABILITY, FITNESS, NON-INFRINGEMENT, AND TITLE ARE ║
+║ EXPRESSLY DISCLAIMED. NO AUTHOR SHALL BE LIABLE UNDER ANY THEORY OF LAW ║
+║ FOR ANY DAMAGES OF ANY KIND RESULTING FROM THE USE OF THIS WORK.        ║
+║                                                                         ║
+╚═════════════════════════════════════════════════════════════════════════╝
+-->
+
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon"> 
+        <title>R.C.M. 707 Calculation</title>
+        <script>
+            var PTRREC = [];
+            var PREFREC = [];
+
+            var global707 = 0;
+
+            function formchange() {
+                normalizerecords();
+                calculateclock();
+            }
+
+            function normalizerecords() {
+                let ptrform = document.getElementById('ptrform');
+                let prefform = document.getElementById('prefform');
+
+                // Get all the PTR records
+                PTRREC = [];
+                ptrform.querySelectorAll('select[name="ptr_type"]').forEach((type,  i) => {
+                    type.parentNode.id = "ptr_record" + i;
+                    PTRREC.push({"type": type.value, "start": "", "end": ""})
+                });
+                ptrform.querySelectorAll('input[name="ptr_start"]').forEach((start, i) => PTRREC[i]["start"] = start.value);
+                ptrform.querySelectorAll('input[name="ptr_end"]'  ).forEach((end,   i) => PTRREC[i]["end"] = end.value);
+                // If we don't have at least one, or the last one is not empty, create a new one
+                if (PTRREC.length == 0 || Object.values(PTRREC[PTRREC.length-1]).join('') != '') {
+                    newdiv = document.createElement("div");
+                    newdiv.id = "ptr_record" + PTRREC.length;
+                    newdiv.innerHTML = `
+                    <label for="ptr_type">Type:</label>
+                    <select name="ptr_type" onchange="formchange();">
+                        <option></option>
+                        <option>Conditions on Liberty</option>
+                        <option>Restriction</option>
+                        <option>Arrest</option>
+                        <option>Confinement</option>
+                    </select>
+                    <label for="ptr_start">Start:</label>
+                    <input type="date" name="ptr_start" onchange="formchange();" />
+                    <label for="ptr_end">End:</label>
+                    <input type="date" name="ptr_end" onchange="formchange();" />
+                    `;
+                    ptrform.appendChild(newdiv);
+                    PTRREC.push({"type": "", "start": "", "end": ""});
+                }
+                // Check the records, except the last one; if empty, remove it
+                for (i = 0; i < PTRREC.length-1; i++) {
+                    if (Object.values(PTRREC[i]).join('') == '') {
+                        document.getElementById("ptr_record" + i).remove();
+                        PTRREC.splice(i, 1);
+                    }
+                }
+
+                // Get all the preferral records
+                // Remember to renumber the div ids, in order to be consistent with array numbering
+                PREFREC = [];
+                prefform.querySelectorAll('input[name="pref_prefdate"]').forEach((prefdate, i) => {
+                    prefdate.parentNode.id = "pref_record" + i;
+                    PREFREC.push({"prefdate": prefdate.value, "arrdate": "", "dmdate": "", "excldelay": ""})
+                });
+                prefform.querySelectorAll('input[name="pref_arrdate"]'  ).forEach((arrdate,   i) => PREFREC[i]["arrdate"] = arrdate.value);
+                prefform.querySelectorAll('input[name="pref_dmdate"]'   ).forEach((dmdate,    i) => PREFREC[i]["dmdate"] = dmdate.value);
+                prefform.querySelectorAll('input[name="pref_excldelay"]').forEach((excldelay, i) => PREFREC[i]["excldelay"] = excldelay.value);
+                // If we don't have at least one, or the last one is not empty, create a new one
+                if (PREFREC.length == 0 || Object.values(PREFREC[PREFREC.length-1]).join('') != '') {
+                    newdiv = document.createElement("div");
+                    newdiv.id = "pref_record" + PREFREC.length;
+                    newdiv.innerHTML = `
+                    <label for="pref_prefdate">Preferred:</label>
+                    <input type="date" name="pref_prefdate" onchange="formchange();" />
+                    <label for="pref_arrdate">Arraigned:</label>
+                    <input type="date" name="pref_arrdate" onchange="formchange();" />
+                    <label for="pref_dmdate">Dismissed:</label>
+                    <input type="date" name="pref_dmdate" onchange="formchange();" />
+                    <label for="pref_excldelay">Excludable Delay:</label>
+                    <input type="number" name="pref_excldelay" onchange="formchange();" />
+                    `;
+                    prefform.appendChild(newdiv);
+                    PREFREC.push({"prefdate": "", "arrdate": "", "dmdate": "", "excldelay": ""});
+                }
+                // Check the records, except the last one; if empty, remove it
+                for (i = 0; i < PREFREC.length-1; i++) {
+                    if (Object.values(PREFREC[i]).join('') == '') {
+                        document.getElementById("pref_record" + i).remove();
+                        PREFREC.splice(i, 1);
+                    }
+                }
+            }
+
+            function calculateclock() {
+                // CONCEPT:
+                //     Calculate the clocks for each of the preferrals
+                //     IF THERE ARE NONE, then also calculate a PTR-only phantom clock
+                //     Longest preferral clock is the global clock
+                // ALGORITHM:
+                //     Phase 1: Calculate based on start and end dates of each preferral 
+                //     Phase 2: Extend by any existing qualifying PTR on the date of preferral
+                //     Phase 3: Extend by any existing qualifying PTR predating that PTR, and ending less than 5 days before; repeat until no more PTRs
+                //     Phase 4: Reduce by any excludable delay
+                //     Phase 5: Find the longest one
+
+                const rightnow = new Date(new Date().toDateString()).getTime();
+                const msperday = 1000 * 60 * 60 * 24;
+                const msperhour = 1000 * 60 * 60;
+                const significantperioddays = 5;
+
+                allprefs = new Array(PREFREC.length);
+                allptrs = new Array(PTRREC.length);
+
+                //--------------------------------------------------------------
+                // Phase 1
+                //--------------------------------------------------------------
+                needphantompref = true;
+                PREFREC.forEach((preferral, i) => {
+                    allprefs[i] = Object.assign({prefdate: -1, arrdate: -1, dmdate: -1, excldelay: -1, clock: -1, ptrstartdate: -1});
+                    if (preferral["prefdate"]  != "") allprefs[i].prefdate  = new Date(preferral["prefdate"] + "T12:00:00").getTime();
+                    if (preferral["arrdate"]   != "") allprefs[i].arrdate   = new Date(preferral["arrdate"] + "T12:00:00").getTime();
+                    if (preferral["dmdate"]    != "") allprefs[i].dmdate    = new Date(preferral["dmdate"] + "T12:00:00").getTime();
+                    if (preferral["excldelay"] != "") allprefs[i].excldelay = parseInt(preferral["excldelay"]);
+                    if (allprefs[i].prefdate != -1) {
+                        if (allprefs[i].dmdate == -1) {
+                            needphantompref = false; // Don't need it
+                            clockend = (allprefs[i].arrdate != -1) ? allprefs[i].arrdate : rightnow;
+                            allprefs[i].clock = clockend - allprefs[i].prefdate;
+                        }                
+                    }
+                });
+                if (needphantompref) {
+                    // console.log("Adding phantom preferral");
+                    allprefs.push({prefdate: rightnow + msperday, arrdate: -1, dmdate: -1, excldelay: 0, clock: 0, ptrstartdate: -1});
+                }
+                allprefs = allprefs.filter((preferral) => Object.values(preferral).join('') != "-1-1-1-1-1-1");
+
+                //--------------------------------------------------------------
+                // Phase 2
+                //--------------------------------------------------------------
+                // Get all the PTR records and assign to the allptrs array for easier handling
+                PTRREC.forEach((ptrrecord, i) => {
+                    allptrs[i] = Object.assign({qualifying: false, start: -1, end: -1});
+                    if (ptrrecord["type"] == "Restriction" || ptrrecord["type"] == "Arrest" || ptrrecord["type"] == "Confinement") {
+                        allptrs[i].qualifying = true;
+                        if (ptrrecord["start"] != "") allptrs[i].start = new Date(ptrrecord["start"] + "T12:00:00").getTime();
+                        if (ptrrecord["end"]   != "") allptrs[i].end   = new Date(ptrrecord["end"] + "T12:00:00").getTime();
+                    }
+                });
+                
+                // Filter out those that don't qualify or haven't started
+                clockptrs = allptrs.filter((ptrrecord) => ptrrecord.qualifying && ptrrecord.start != -1);
+
+                // For each preferral, if there is a qualifying PTR record in effect on the date of preferral, set that preferral's ptrstartdate
+                // Any qualifying PTR start date will do.
+                allprefs.forEach((preferral) => {
+                    if (preferral.dmdate == -1) {
+                        for (i = 0; i < clockptrs.length; i++) {
+                            // console.log("Checking " + new Date(clockptrs[i].start).toDateString() + " to " + new Date(clockptrs[i].end).toDateString());
+                            // console.log("against a preferral start date of " + new Date(preferral.prefdate).toDateString());
+                            if (clockptrs[i].start > preferral.prefdate) continue;
+                            if (-1 < clockptrs[i].end && clockptrs[i].end < preferral.prefdate) continue;
+                            // console.log("Found a qualifying PTR at " + clockptrs[i].start);
+                            preferral.ptrstartdate = clockptrs[i].start;
+                            clockend = (preferral.arrdate != -1) ? preferral.arrdate : rightnow;
+                            preferral.clock = clockend - preferral.ptrstartdate;
+                            break;
+                        }
+                    }
+                });
+
+                //--------------------------------------------------------------
+                // Phase 3
+                //--------------------------------------------------------------
+                extendedprefs = allprefs.filter((preferral) => preferral.ptrstartdate != -1);
+                
+                extendedprefs.forEach((preferral) => {
+                    relevantptrs = clockptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-significantperioddays*msperday));}, preferral);
+                    while (relevantptrs.length > 0) {
+                        preferral.ptrstartdate = relevantptrs[0].start;
+                        relevantptrs = relevantptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-significantperioddays*msperday));}, preferral);
+                    }
+                    clockend = (preferral.arrdate != -1) ? preferral.arrdate : rightnow;
+                    preferral.clock = clockend - preferral.ptrstartdate;
+                });
+
+
+                //--------------------------------------------------------------
+                // Phase 4
+                //--------------------------------------------------------------
+                allprefs.forEach((preferral) => {
+                    // console.log("preferral.clock (before conversion): " + preferral.clock);
+                    if (preferral.clock > 0) preferral.clock = Math.round(preferral.clock / msperday);
+                    // console.log("preferral.clock (after conversion): " + preferral.clock);
+                    // console.log("preferral.excldelay: " + preferral.excldelay);
+                    if (preferral.excldelay > 0) preferral.clock = preferral.clock - preferral.excldelay;
+                    // console.log("preferral.clock (after excl delay): " + preferral.clock);
+                    // if (preferral.clock < 0) preferral.clock = 0;
+
+                });
+
+                //--------------------------------------------------------------
+                // Phase 5
+                //--------------------------------------------------------------
+                global707 = 0;
+                allprefs.forEach((record, i) => {
+                    if (record.clock > global707) global707 = record.clock;
+                    if (global707 == 0) {
+                        textinsert = "0";
+                    } else if (record.prefdate <= rightnow + msperhour * 23.75) {
+                        textinsert = "" + global707 + " (charges preferred on " + new Date(record.prefdate).toDateString() + ")";
+                    } else {
+                        textinsert = "" + global707 + " (PTR only)";
+                    }
+                    document.getElementById('clock707').innerHTML = "R.C.M. 707 Clock: <span>" + textinsert + "</span>";
+                });
+            }
+
+        </script>
+    </head>
+    <body onload="normalizerecords();">
+        <h2>R.C.M. 707 Calculation</h2>
+
+        <p id="clock707" name="clock707">R.C.M. 707 Clock: 0</p>
+        
+        <h3>Pretrial Restraint</h3>
+        <form name="ptrform" id="ptrform">
+        </form>
+
+        <h3>Preferrals</h3>
+        <form name="prefform" id="prefform">
+        </form>
+    </body> 
+</html>
+
