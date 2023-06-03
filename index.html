@@ -17,6 +17,18 @@
 ║ FOR ANY DAMAGES OF ANY KIND RESULTING FROM THE USE OF THIS WORK.        ║
 ║                                                                         ║
 ╚═════════════════════════════════════════════════════════════════════════╝
+
+DONE: Remove option for negative excludable delay (UI issue)
+
+DONE: Fix post-dismissal PTC/PTR calculation. "For an accused under pretrial
+restraint under R.C.M. 304(a)(2)-(4) at the time of the dismissal or mistrial,
+a new 120-day period begins on the date of the dismissal or mistrial." Rule
+for Courts-Martial 707(b)(3)(A)(i).
+
+DONE: BUGFIX: When arraignment date is in the future, measure the clock to
+today instead of to arraignment!!!
+
+
 -->
 
 <html>
@@ -54,6 +66,7 @@
                 let form = document.getElementById('prefform');
                 retval = [];
                 form.querySelectorAll('div').forEach((record,  i) => record.id = "pref_record" + i);
+                form.querySelectorAll('input[name="excldly"]').forEach((excldly) => excldly.value = (parseInt(excldly.value) < 1) ? "" : excldly.value);  // UI BUGFIX
                 form.querySelectorAll('input[name="excldly"]').forEach((excldly, i) => retval.push({ prefdate: -1, arrdate: -1, dmdate: -1, excldly: (parseInt(excldly.value)||0), clock: -1, ptrstartdate: -1 }));
                 form.querySelectorAll('input[name="prefdate"]').forEach((prefdate, i) => retval[i].prefdate = txt2tm(prefdate.value));
                 form.querySelectorAll('input[name="arrdate"]').forEach((arrdate,   i) => retval[i].arrdate = txt2tm(arrdate.value));
@@ -140,7 +153,7 @@
                     if (preferral.prefdate != -1) {
                         if (preferral.dmdate == -1) {
                             needphantompref = false; // Don't need it
-                            clockend = (preferral.arrdate != -1) ? preferral.arrdate : RIGHTNOW;
+                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
                             preferral.clock = clockend - preferral.prefdate;
                         } else {
                             preferral.clock = 0;
@@ -148,7 +161,7 @@
                     }
                 });
                 if (needphantompref) {
-                    pref_records.push({prefdate: RIGHTNOW+MSPERDAY, arrdate: -1, dmdate: -1, excldly: 0, clock: -1, ptrstartdate: -1});
+                    pref_records.push({prefdate: RIGHTNOW+MSPERHOUR, arrdate: -1, dmdate: -1, excldly: 0, clock: -1, ptrstartdate: -1});
                 }
 
                 // PHASE 2: Initial backdating by ANY existing qualifying PTR on the date of preferral
@@ -159,7 +172,7 @@
                             if (clockptrs[i].start > preferral.prefdate) continue;
                             if (-1 < clockptrs[i].end && clockptrs[i].end < preferral.prefdate) continue;
                             preferral.ptrstartdate = clockptrs[i].start;
-                            clockend = (preferral.arrdate != -1) ? preferral.arrdate : RIGHTNOW;
+                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
                             preferral.clock = clockend - preferral.ptrstartdate;
                             break;
                         }
@@ -174,22 +187,30 @@
                         preferral.ptrstartdate = relevantptrs[0].start;
                         relevantptrs = relevantptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-SIGPRDDAYS*MSPERDAY));}, preferral);
                     }
-                    clockend = (preferral.arrdate != -1) ? preferral.arrdate : RIGHTNOW;
+                    clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
                     preferral.clock = clockend - preferral.ptrstartdate;
                 });
 
+                // PHASE 3.5: BUGFIX: If we have a "phantom preferral" then we may need to adjust its ptrstart date to the latest dismissal
+                if (needphantompref) {
+                    // Get the index of the phantom preferral in the preferral array, and find the latest dismissal
+                    phantomidx = pref_records.findLastIndex((preferral) => preferral.prefdate > RIGHTNOW);
+                    latestdismissal = Math.max(...pref_records.map((preferral) => preferral.dmdate));
+                    // If the dismissal is after the phantom preferral's PTR start date, then we need to adjust it; PTR start date is reset due to R.C.M. 707(b)(3)(A)(i)
+                    // NOTE: No concern for false positives; invalid values are -1, and there are no valid values < -1. 
+                    if (latestdismissal > pref_records[phantomidx].ptrstartdate) {
+                        pref_records[phantomidx].ptrstartdate = latestdismissal;
+                        pref_records[phantomidx].clock        = RIGHTNOW - latestdismissal;
+                    }
+                }
+
                 // PHASE 4: Reduce by any excludable delay
                 pref_records.forEach((preferral) => {
-                    if (preferral.clock > 0)     preferral.clock = Math.round(preferral.clock / MSPERDAY);
+                    if (preferral.clock > 0) preferral.clock = Math.round(preferral.clock / MSPERDAY);
                     if (preferral.excldly > 0) preferral.clock = preferral.clock - preferral.excldly;
                 });
 
-                case707 = 0;
-                pref_records.forEach((preferral, i) => {
-                    if (preferral.clock > case707) {
-                        case707 = preferral.clock;
-                    }
-                });
+                case707 = Math.max(0, ...pref_records.map(preferral => preferral.clock));
                 
                 return case707;
             }
