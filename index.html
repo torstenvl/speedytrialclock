@@ -18,16 +18,20 @@
 ║                                                                         ║
 ╚═════════════════════════════════════════════════════════════════════════╝
 
-DONE: Remove option for negative excludable delay (UI issue)
+DONE: ISSUE 1: When arraignment date is in the future, measure the clock to
+today instead of to arraignment.
 
-DONE: Fix post-dismissal PTC/PTR calculation. "For an accused under pretrial
-restraint under R.C.M. 304(a)(2)-(4) at the time of the dismissal or mistrial,
-a new 120-day period begins on the date of the dismissal or mistrial." Rule
-for Courts-Martial 707(b)(3)(A)(i).
+DONE: ISSUE 2: Fix post-dismissal PTC/PTR calculation. "For an accused under
+pretrial restraint under R.C.M. 304(a)(2)-(4) at the time of the dismissal or
+mistrial, a new 120-day period begins on the date of the dismissal or
+mistrial." --Rule for Courts-Martial 707(b)(3)(A)(i).
 
-DONE: BUGFIX: When arraignment date is in the future, measure the clock to
-today instead of to arraignment!!!
+DONE: ISSUE 3: Remove option for negative excludable delay (UI issue).
 
+TESTERS: Special thanks to--
+                 Keaton Harrell
+                 Jeff Amell
+                 Bobby Luyties
 
 -->
 
@@ -35,7 +39,10 @@ today instead of to arraignment!!!
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon"> 
-        <title>R.C.M. 707 Calculation</title>
+        <title>R.C.M. 707 Calculator</title>
+        <meta property="og:title" content="R.C.M. 707 Calculator Test" />
+        <meta property="og:description" content="Thanks for helping me test this! While we can't predict or account for everything, we want this to be as accurate as reasonably possible." />
+        <meta property="og:image" content="https://ockerts.com/speedytrialclock/speedytrial.jpeg" />
         <script>
             function formchange() {
                 ptr_records = get_page_ptr_records();
@@ -66,7 +73,7 @@ today instead of to arraignment!!!
                 let form = document.getElementById('prefform');
                 retval = [];
                 form.querySelectorAll('div').forEach((record,  i) => record.id = "pref_record" + i);
-                form.querySelectorAll('input[name="excldly"]').forEach((excldly) => excldly.value = (parseInt(excldly.value) < 1) ? "" : excldly.value);  // UI BUGFIX
+                form.querySelectorAll('input[name="excldly"]').forEach((excldly) => excldly.value = (parseInt(excldly.value) < 1) ? "" : excldly.value);  // BUGFIX: Issue #3
                 form.querySelectorAll('input[name="excldly"]').forEach((excldly, i) => retval.push({ prefdate: -1, arrdate: -1, dmdate: -1, excldly: (parseInt(excldly.value)||0), clock: -1, ptrstartdate: -1 }));
                 form.querySelectorAll('input[name="prefdate"]').forEach((prefdate, i) => retval[i].prefdate = txt2tm(prefdate.value));
                 form.querySelectorAll('input[name="arrdate"]').forEach((arrdate,   i) => retval[i].arrdate = txt2tm(arrdate.value));
@@ -141,7 +148,11 @@ today instead of to arraignment!!!
                 //     IF THERE ARE NONE, then also calculate a PTR-only phantom clock
                 //     Longest preferral clock is the global clock
 
-                const SIGPRDDAYS = 5;
+                // Smallest "significant" period in case law is five days, but we want to be conservative;
+                // it's better to be too careful about busting the clock than not to be careful enough.
+                // So... we'll double that. Any break less than ten days is an insignificant period for
+                // our purposes. 
+                const SIGPRDDAYS = 10; 
 
                 const RIGHTNOW = new Date(new Date().toDateString()).getTime();
                 const MSPERHOUR = 1000 * 60 * 60;
@@ -153,7 +164,7 @@ today instead of to arraignment!!!
                     if (preferral.prefdate != -1) {
                         if (preferral.dmdate == -1) {
                             needphantompref = false; // Don't need it
-                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
+                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW; // BUGFIX: Issue #1
                             preferral.clock = clockend - preferral.prefdate;
                         } else {
                             preferral.clock = 0;
@@ -172,7 +183,7 @@ today instead of to arraignment!!!
                             if (clockptrs[i].start > preferral.prefdate) continue;
                             if (-1 < clockptrs[i].end && clockptrs[i].end < preferral.prefdate) continue;
                             preferral.ptrstartdate = clockptrs[i].start;
-                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
+                            clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW; // BUGFIX: Issue #1
                             preferral.clock = clockend - preferral.ptrstartdate;
                             break;
                         }
@@ -187,11 +198,11 @@ today instead of to arraignment!!!
                         preferral.ptrstartdate = relevantptrs[0].start;
                         relevantptrs = relevantptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-SIGPRDDAYS*MSPERDAY));}, preferral);
                     }
-                    clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW;
+                    clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW; // BUGFIX: Issue #1
                     preferral.clock = clockend - preferral.ptrstartdate;
                 });
 
-                // PHASE 3.5: BUGFIX: If we have a "phantom preferral" then we may need to adjust its ptrstart date to the latest dismissal
+                // PHASE 3.5: BUGFIX: Issue #2: If we have a "phantom preferral" (PTC/Arrest/PTR only) then we may need to adjust the PTR start date to the latest dismissal
                 if (needphantompref) {
                     // Get the index of the phantom preferral in the preferral array, and find the latest dismissal
                     phantomidx = pref_records.findLastIndex((preferral) => preferral.prefdate > RIGHTNOW);
