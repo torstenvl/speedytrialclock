@@ -28,6 +28,9 @@ mistrial." --Rule for Courts-Martial 707(b)(3)(A)(i).
 
 DONE: ISSUE 3: Remove option for negative excludable delay (UI issue).
 
+DONE: ISSUE 4: Apply the fix for Issue #2 to all preferral records, not just
+phantom preferral / PTR-only cases.
+
 TESTERS: Special thanks to--
                  Keaton Harrell
                  Jeff Amell
@@ -40,10 +43,11 @@ TESTERS: Special thanks to--
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon"> 
         <title>R.C.M. 707 Calculator</title>
-        <meta property="og:title" content="R.C.M. 707 Calculator Test" />
+        <meta property="og:title" content="Speedy Trial Clock Calculator Test" />
         <meta property="og:description" content="Thanks for helping me test this! While we can't predict or account for everything, we want this to be as accurate as reasonably possible." />
         <meta property="og:image" content="https://ockerts.com/speedytrialclock/speedytrial.jpeg" />
         <script>
+
             function formchange() {
                 ptr_records = get_page_ptr_records();
                 pref_records = get_page_pref_records();
@@ -110,7 +114,7 @@ TESTERS: Special thanks to--
                     newdiv = document.createElement("div");
                     newdiv.id = "pref_record" + pref_records.length;
                     newdiv.innerHTML = `
-                    <label for="prefdate">Preferred:</label>
+                    <label for="prefdate">Charges Sworn:</label>
                     <input type="date" name="prefdate" onchange="formchange();" />
                     <label for="arrdate">Arraigned:</label>
                     <input type="date" name="arrdate" onchange="formchange();" />
@@ -191,29 +195,22 @@ TESTERS: Special thanks to--
                 });
 
                 // PHASE 3: Extended backdating, accounting for breaks in PTR/PTC less than a "significant period"
-                extendedprefs = pref_records.filter((preferral) => preferral.ptrstartdate != -1);
-                extendedprefs.forEach((preferral) => {
+                //          Then apply lower bound on the preferral PTR start date, based on dismissals
+                ptrprefs = pref_records.filter((preferral) => preferral.ptrstartdate != -1);
+                ptrprefs.forEach((preferral) => {
+                    // Get all the PTR records that started earlier, and ended no later than SIGPRDDAYS before the current PTR start date; then backdate until none remain
                     relevantptrs = clockptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-SIGPRDDAYS*MSPERDAY));}, preferral);
                     while (relevantptrs.length > 0) {
                         preferral.ptrstartdate = relevantptrs[0].start;
                         relevantptrs = relevantptrs.filter(function(ptrrecord){return (ptrrecord.start<this.ptrstartdate && (ptrrecord.end==-1 || ptrrecord.end>this.ptrstartdate-SIGPRDDAYS*MSPERDAY));}, preferral);
                     }
+                    // Reverse the backdating up to the date of the last dismissal of charges BUGFIX Issue #2, #4
+                    for (i = 0; i < pref_records.length; i++) {
+                        if (pref_records[i].dmdate > preferral.ptrstartdate) preferral.ptrstartdate = pref_records[i].dmdate;
+                    }
                     clockend = (preferral.arrdate != -1 && preferral.arrdate < RIGHTNOW) ? preferral.arrdate : RIGHTNOW; // BUGFIX: Issue #1
                     preferral.clock = clockend - preferral.ptrstartdate;
                 });
-
-                // PHASE 3.5: BUGFIX: Issue #2: If we have a "phantom preferral" (PTC/Arrest/PTR only) then we may need to adjust the PTR start date to the latest dismissal
-                if (needphantompref) {
-                    // Get the index of the phantom preferral in the preferral array, and find the latest dismissal
-                    phantomidx = pref_records.findLastIndex((preferral) => preferral.prefdate > RIGHTNOW);
-                    latestdismissal = Math.max(...pref_records.map((preferral) => preferral.dmdate));
-                    // If the dismissal is after the phantom preferral's PTR start date, then we need to adjust it; PTR start date is reset due to R.C.M. 707(b)(3)(A)(i)
-                    // NOTE: No concern for false positives; invalid values are -1, and there are no valid values < -1. 
-                    if (latestdismissal > pref_records[phantomidx].ptrstartdate) {
-                        pref_records[phantomidx].ptrstartdate = latestdismissal;
-                        pref_records[phantomidx].clock        = RIGHTNOW - latestdismissal;
-                    }
-                }
 
                 // PHASE 4: Reduce by any excludable delay
                 pref_records.forEach((preferral) => {
@@ -229,7 +226,7 @@ TESTERS: Special thanks to--
         </script>
     </head>
     <body onload="formchange();">
-        <h2>R.C.M. 707 Calculation</h2>
+        <h2>Speedy Trial Clock Calculation</h2>
 
         <p id="clock707" name="clock707">R.C.M. 707 Clock: 0</p>
         
