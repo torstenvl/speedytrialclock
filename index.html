@@ -31,10 +31,10 @@ DONE: ISSUE 3: Remove option for negative excludable delay (UI issue).
 DONE: ISSUE 4: Apply the fix for Issue #2 to all preferral records, not just
 phantom preferral / PTR-only cases.
 
-TESTERS: Special thanks to--
-                 Keaton Harrell
-                 Jeff Amell
-                 Bobby Luyties
+Thank you to the following people for helping me test this:
+    LtCol K. Harrell
+    Maj J. Amell
+    MAJ B. Luyties
 
 -->
 
@@ -43,9 +43,9 @@ TESTERS: Special thanks to--
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <link rel="shortcut icon" href="data:image/x-icon;," type="image/x-icon"> 
         <title>R.C.M. 707 Calculator</title>
-        <meta property="og:title" content="Speedy Trial Clock Calculator Test" />
+        <!-- <meta property="og:title" content="Speedy Trial Clock Calculator Test" />
         <meta property="og:description" content="Thanks for helping me test this! While we can't predict or account for everything, we want this to be as accurate as reasonably possible." />
-        <meta property="og:image" content="https://ockerts.com/speedytrialclock/speedytrial.jpeg" />
+        <meta property="og:image" content="https://cdn-apgml.nitrocdn.com/LebpnhtoivqQZrhySxTgIGIqkErReVqW/assets/images/optimized/rev-5081a73/wp-content/uploads/2021/08/speedy-trial.jpeg" /> -->
         <script>
 
             function formchange() {
@@ -114,7 +114,7 @@ TESTERS: Special thanks to--
                     newdiv = document.createElement("div");
                     newdiv.id = "pref_record" + pref_records.length;
                     newdiv.innerHTML = `
-                    <label for="prefdate">Charges Sworn:</label>
+                    <label for="prefdate">Preferred (Sworn):</label>
                     <input type="date" name="prefdate" onchange="formchange();" />
                     <label for="arrdate">Arraigned:</label>
                     <input type="date" name="arrdate" onchange="formchange();" />
